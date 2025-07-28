@@ -10,9 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.registry import register_model
 import numpy as np
+from . import utils
 
-import utils
-from modeling_utils import BEiT3Wrapper, _get_base_config, _get_large_config
+from .modeling_utils import BEiT3Wrapper, _get_base_config, _get_large_config
 
 
 class TwoLayerMLP(nn.Module):
@@ -273,6 +273,33 @@ class BEiT3ForRetrieval(BEiT3Wrapper):
                 vision_cls, language_cls, self.logit_scale.exp())
             return loss, vision_cls, language_cls
 
+class BEiT3FuseEncoder(BEiT3Wrapper):
+    def __init__(
+            self, 
+            args,
+            **kwargs
+    ):
+        super(BEiT3FuseEncoder, self).__init__(args=args)
+        embed_dim = args.encoder_embed_dim
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        norm_layer=nn.LayerNorm
+        self.head = nn.Sequential(nn.Linear(embed_dim * 2, embed_dim), 
+        )
+        self.head.apply(self._init_weights)
+
+    def forward(self, image=None, text_description=None, atten_mask=None, **kwargs):
+        outputs = self.beit3(
+            textual_tokens=text_description, 
+            visual_tokens=image, 
+            attn_mask=atten_mask,
+        )
+        x = outputs["encoder_out"]
+        multiway_split_position = outputs["multiway_split_position"]
+
+        vision_cls = x[:, 0, :]
+        language_cls = x[:, multiway_split_position, :]
+        cls_rep = torch.cat((vision_cls, language_cls), dim=-1)
+        return self.head(cls_rep)
 
 @register_model
 def beit3_base_patch16_224_imageclassification(pretrained=False, **kwargs):
@@ -281,6 +308,23 @@ def beit3_base_patch16_224_imageclassification(pretrained=False, **kwargs):
     model = BEiT3ForImageClassification(args, num_classes=1000, **kwargs)
     return model
 
+@register_model
+def beit3_base_patch16_224_fused(pretrained=False, **kwargs):
+    args = _get_base_config(img_size=224,**kwargs)
+    model = BEiT3FuseEncoder(args, **kwargs)
+    if pretrained == True:
+        checkpoint_path = 'https://github.com/addf400/files/releases/download/beit3/beit3_base_itc_patch16_224.pth'
+        utils.load_model_and_may_interpolate(checkpoint_path, model,'model|module', '')
+    return model
+
+@register_model
+def beit3_large_patch16_224_fused(pretrained=False, **kwargs):
+    args = _get_large_config(img_size=224, **kwargs)
+    model = BEiT3FuseEncoder(args, **kwargs)
+    if pretrained == True:
+        checkpoint_path = 'https://github.com/addf400/files/releases/download/beit3/beit3_large_itc_patch16_224.pth'
+        utils.load_model_and_may_interpolate(checkpoint_path, model,'model|module', '')
+    return model
 
 @register_model
 def beit3_large_patch16_224_imageclassification(pretrained=False, **kwargs):
@@ -376,6 +420,9 @@ def beit3_base_patch16_224_retrieval(pretrained=False, **kwargs):
 def beit3_base_patch16_384_retrieval(pretrained=False, **kwargs):
     args = _get_base_config(img_size=384, **kwargs)
     model = BEiT3ForRetrieval(args, **kwargs)
+    if pretrained == True:
+        checkpoint_path = 'https://github.com/addf400/files/releases/download/beit3/beit3_base_patch16_384_coco_retrieval.pth'
+        utils.load_model_and_may_interpolate(checkpoint_path, model,'model|module', '')
     return model
 
 
