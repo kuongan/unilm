@@ -430,4 +430,7 @@ def beit3_base_patch16_384_retrieval(pretrained=False, **kwargs):
 def beit3_large_patch16_384_retrieval(pretrained=False, **kwargs):
     args = _get_large_config(img_size=384, **kwargs)
     model = BEiT3ForRetrieval(args, **kwargs)
+    if pretrained == True:
+        checkpoint_path = 'https://github.com/addf400/files/releases/download/beit3/beit3_large_patch16_384_coco_retrieval.pth'
+        utils.load_model_and_may_interpolate(checkpoint_path, model,'model|module', '')
     return model
